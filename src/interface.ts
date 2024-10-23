@@ -1,10 +1,10 @@
 import * as Minio from 'minio';
-import type { ProxyClientFunc } from './type';
+import { ProxyClient } from './proxy';
 
 export { Minio };
 
 export type MWMinioOptions = Minio.ClientOptions & { bucket: string };
 
-export type MinioServiceFactoryReturnType = ProxyClientFunc & {
+export type MinioServiceFactoryReturnType = ProxyClient & {
   bucketName: string;
 };

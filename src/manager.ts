@@ -18,7 +18,6 @@ import type {
 } from './interface';
 
 import { MinioClientProxy, ProxyClient } from './proxy';
-import { ProxyClientFunc } from './type';
 import { Client } from 'minio';
 function checkBucketConfig(config) {
   assert(
@@ -47,7 +46,6 @@ export class MinioServiceFactory<
     await this.initClients(this.minioConfig);
   }
 
-  // @ts-ignore
   async createClient(config: MWMinioOptions): Promise<T> {
     this.logger.info(
       '[midway:minio] connecting bucket：%s with accessKey: %s',
@@ -56,8 +54,7 @@ export class MinioServiceFactory<
     );
     checkBucketConfig(config);
 
-    // @ts-ignore
-    return new MinioClientProxy(config) as unknown as T;
+    return new MinioClientProxy(config) as T;
   }
 
   getName(): string {
@@ -67,7 +64,6 @@ export class MinioServiceFactory<
 
 @Provide()
 @Scope(ScopeEnum.Singleton)
-// @ts-ignore
 export class MinioService implements ProxyClient {
   @Inject()
   private serviceFactory: MinioServiceFactory;
@@ -89,8 +85,7 @@ export class MinioService implements ProxyClient {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-// @ts-ignore
-export interface MinioService extends ProxyClientFunc {
+export interface MinioService extends ProxyClient {
   // empty
   bucket: string;
 }

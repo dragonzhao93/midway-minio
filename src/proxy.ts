@@ -1,8 +1,47 @@
 import { Client } from 'minio';
 import type { MWMinioOptions } from './interface';
-import type { BucketItem } from 'minio/dist/main/internal/type';
-import { ProxyClientFunc } from './type';
+import { createReadStream } from 'fs';
+import type {
+  BucketVersioningConfiguration,
+  EncryptionConfig,
+  GetObjectOpts,
+  GetObjectRetentionOpts,
+  ObjectMetaData,
+  ObjectRetentionInfo,
+  PreSignRequestParams,
+  RemoveObjectsParam,
+  RemoveObjectsResponse,
+  SelectOptions,
+  StatObjectOpts,
+  TaggingOpts,
+  UploadedObjectInfo,
+  LifeCycleConfigParam,
+  ResultCallback,
+  Tags,
+} from 'minio/dist/main/internal/type';
+import * as stream from 'node:stream';
+import type {
+  RemoveOptions,
+  SelectResults,
+  NotificationConfig,
+  NotificationEvent,
+  NotificationPoller,
+  BucketItem,
+  BucketItemStat,
+  BucketStream,
+  GetObjectLegalHoldOptions,
+  IncompleteUploadedBucketItem,
+  ItemBucketMetadata,
+  LifecycleConfig,
+  ObjectLockInfo,
+  PutObjectLegalHoldOptions,
+  ReplicationConfig,
+  ReplicationConfigOpts,
+  Retention,
+  Tag,
+} from 'minio';
 
+import type { NoResultCallback } from 'minio/dist/main/internal/client';
 const proxyBucketNameMethods = [
   'listObjects',
   'listObjectsV2',
@@ -51,45 +90,201 @@ const proxyBucketNameMethods = [
   'setBucketPolicy',
 ];
 
+async function streamToArray<T>(stream) {
+  return new Promise<T[]>((resolve, reject) => {
+    const data: T[] = [];
+    stream.on('data', obj => data.push(obj));
+    stream.on('end', () => resolve(data));
+    stream.on('error', err => reject(err));
+  });
+}
+
 // @ts-ignore
-export class ProxyClient extends Client implements ProxyClientFunc {
+export class ProxyClient extends Client {
+  /**
+   * listObjects异步方法
+   * @param methodArgs
+   */
   async listObjectsAsync(...methodArgs) {
-    return new Promise<BucketItem[]>((resolve, reject) => {
-      // @ts-ignore
-      const stream = this.listObjects(...methodArgs);
-      const data = [];
-      stream.on('data', function (obj) {
-        data.push(obj);
-      });
-      stream.on('end', function () {
-        resolve(data);
-      });
-      stream.on('error', function (err) {
-        reject(err);
-      });
-    });
+    const stream = this.listObjects(...methodArgs);
+    return streamToArray<BucketItem>(stream);
   }
 
+  /**
+   * listObjectsV2异步方法
+   * @param methodArgs
+   */
   async listObjectsV2Async(...methodArgs) {
-    return new Promise<BucketItem[]>((resolve, reject) => {
-      // @ts-ignore
-      const stream = this.listObjectsV2(...methodArgs);
-      const data = [];
-      stream.on('data', function (obj) {
-        data.push(obj);
-      });
-      stream.on('end', function () {
-        resolve(data);
-      });
-      stream.on('error', function (err) {
-        reject(err);
-      });
-    });
+    const stream = this.listObjectsV2(...methodArgs);
+    return streamToArray<BucketItem>(stream);
+  }
+
+  /**
+   * putObject异步方法
+   * @param methodArgs
+   */
+  async putObjectAsync(...methodArgs) {
+    const [objectName, filePath, ...resetArgs] = methodArgs;
+    return new Promise<{ etag: string; versionId: string }>(
+      (resolve, reject) => {
+        const fileStream = createReadStream(filePath);
+        this.putObject(
+          objectName,
+          fileStream,
+          ...resetArgs,
+          function (err, objInfo) {
+            if (err) return reject(err);
+            resolve(objInfo);
+          }
+        );
+      }
+    );
   }
 }
 
 // @ts-ignore
-export interface ProxyClient extends ProxyClientFunc {}
+export interface ProxyClient extends Client {
+  listObjects(prefix?: string, recursive?: boolean): BucketStream<BucketItem>;
+  listObjectsV2(
+    prefix?: string,
+    recursive?: boolean,
+    startAfter?: string
+  ): BucketStream<BucketItem>;
+  listIncompleteUploads(
+    prefix?: string,
+    recursive?: boolean
+  ): BucketStream<IncompleteUploadedBucketItem>;
+  setBucketVersioning(
+    versioningConfig: BucketVersioningConfiguration
+  ): Promise<void>;
+  getBucketVersioning(): Promise<BucketVersioningConfiguration>;
+  setBucketReplication(replicationConfig: ReplicationConfigOpts): Promise<void>;
+  getBucketReplication(): Promise<ReplicationConfig>;
+  removeBucketReplication(): Promise<void>;
+  setBucketTagging(tags: Tags): Promise<void>;
+  removeBucketTagging(): Promise<void>;
+  getBucketTagging(): Promise<Tag[]>;
+  setBucketLifecycle(lifeCycleConfig: LifeCycleConfigParam): Promise<void>;
+  getBucketLifecycle(): Promise<LifecycleConfig | null>;
+  removeBucketLifecycle(): Promise<void>;
+  setObjectLockConfig(
+    lockConfigOpts: Omit<ObjectLockInfo, 'objectLockEnabled'>
+  ): Promise<void>;
+  getObjectLockConfig(): Promise<ObjectLockInfo>;
+  setBucketEncryption(encryptionConfig?: EncryptionConfig): Promise<void>;
+  getBucketEncryption(): Promise<string>;
+  removeBucketEncryption(): Promise<void>;
+  getObject(
+    objectName: string,
+    getOpts: GetObjectOpts
+  ): Promise<stream.Readable>;
+  getPartialObject(
+    objectName: string,
+    offset: number,
+    length: number,
+    getOpts: GetObjectOpts
+  ): Promise<stream.Readable>;
+  fGetObject(
+    objectName: string,
+    filePath: string,
+    getOpts: GetObjectOpts
+  ): Promise<void>;
+  putObject(
+    objectName: string,
+    stream: stream.Readable | Buffer | string,
+    size?: number,
+    metaData?: ItemBucketMetadata
+  ): Promise<UploadedObjectInfo>;
+  fPutObject(
+    objectName: string,
+    filePath: string,
+    metaData: ObjectMetaData
+  ): Promise<void>;
+  statObject(
+    objectName: string,
+    statOpts: StatObjectOpts
+  ): Promise<BucketItemStat>;
+  removeObject(objectName: string, removeOpts?: RemoveOptions): Promise<void>;
+  removeObjects(
+    objectsList: RemoveObjectsParam
+  ): Promise<RemoveObjectsResponse[]>;
+  removeIncompleteUpload(objectName: string): Promise<void>;
+  putObjectRetention(
+    objectName: string,
+    retentionOpts: Retention
+  ): Promise<void>;
+  getObjectRetention(
+    objectName: string,
+    getOpts?: GetObjectRetentionOpts
+  ): Promise<ObjectRetentionInfo | null | undefined>;
+  setObjectTagging(
+    objectName: string,
+    tags: Tags,
+    putOpts: TaggingOpts
+  ): Promise<void>;
+  removeObjectTagging(
+    objectName: string,
+    removeOpts: TaggingOpts
+  ): Promise<void>;
+  getObjectTagging(objectName: string, getOpts: GetObjectOpts): Promise<Tag[]>;
+  getObjectLegalHold(
+    objectName: string,
+    getOpts?: GetObjectLegalHoldOptions
+  ): Promise<'ON' | 'OFF'>;
+  setObjectLegalHold(
+    objectName: string,
+    setOpts: PutObjectLegalHoldOptions
+  ): Promise<void>;
+  selectObjectContent(
+    objectName: string,
+    selectOpts: SelectOptions
+  ): Promise<SelectResults | undefined>;
+  presignedUrl(
+    method: string,
+    objectName: string,
+    expires?: number | PreSignRequestParams | undefined,
+    reqParams?: PreSignRequestParams | Date,
+    requestDate?: Date
+  ): Promise<string>;
+  presignedGetObject(
+    objectName: string,
+    expires?: number,
+    respHeaders?: PreSignRequestParams | Date,
+    requestDate?: Date
+  ): Promise<string>;
+  presignedPutObject(objectName: string, expires?: number): Promise<string>;
+  // Bucket Policy & Notification operations
+  getBucketNotification(callback: ResultCallback<NotificationConfig>): void;
+  getBucketNotification(): Promise<NotificationConfig>;
+  setBucketNotification(
+    bucketNotificationConfig: NotificationConfig,
+    callback: NoResultCallback
+  ): void;
+  setBucketNotification(
+    bucketNotificationConfig: NotificationConfig
+  ): Promise<void>;
+  removeAllBucketNotification(callback: NoResultCallback): void;
+  removeAllBucketNotification(): Promise<void>;
+  listenBucketNotification(
+    prefix: string,
+    suffix: string,
+    events: NotificationEvent[]
+  ): NotificationPoller;
+  getBucketPolicy(): Promise<string>;
+  setBucketPolicy(policy: string): Promise<void>;
+  listObjectsAsync(prefix?: string, recursive?: boolean): Promise<BucketItem[]>;
+  listObjectsV2Async(
+    prefix?: string,
+    recursive?: boolean,
+    startAfter?: string
+  ): Promise<BucketItem[]>;
+  putObjectAsync(
+    objectName: string,
+    filePath: string,
+    size?: number,
+    metaData?: ItemBucketMetadata
+  ): Promise<{ etag: string; versionId: string }>;
+}
 
 export const MinioClientProxy = new Proxy(ProxyClient, {
   construct(target, args: [MWMinioOptions]) {
@@ -137,8 +332,7 @@ export function createInstanceProxy(instance) {
       }
 
       // 对于其他方法，返回原来的方法
-      const result = Reflect.get(target, propKey, receiver);
-      return result;
+      return Reflect.get(target, propKey, receiver);
     },
   });
 }
