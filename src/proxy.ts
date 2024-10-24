@@ -99,6 +99,15 @@ async function streamToArray<T>(stream) {
   });
 }
 
+async function callbackToPromise<T>(func, args) {
+  return new Promise<{ etag: string; versionId: string }>((resolve, reject) => {
+    func(...args, (err, objInfo) => {
+      if (err) return reject(err);
+      resolve(objInfo);
+    });
+  });
+}
+
 // @ts-ignore
 export class ProxyClient extends Client {
   /**
@@ -124,6 +133,19 @@ export class ProxyClient extends Client {
    * @param methodArgs
    */
   async putObjectAsync(...methodArgs) {
+    const [objectName, fileStream, ...resetArgs] = methodArgs;
+    return callbackToPromise(this.putObject, [
+      objectName,
+      fileStream,
+      ...resetArgs,
+    ]);
+  }
+
+  /**
+   * fPutObject异步方法
+   * @param methodArgs
+   */
+  async fPutObjectAsync(...methodArgs) {
     const [objectName, filePath, ...resetArgs] = methodArgs;
     return new Promise<{ etag: string; versionId: string }>(
       (resolve, reject) => {
@@ -194,11 +216,11 @@ export interface ProxyClient extends Client {
     stream: stream.Readable | Buffer | string,
     size?: number,
     metaData?: ItemBucketMetadata
-  ): Promise<UploadedObjectInfo>;
+  ): Promise<void>;
   fPutObject(
     objectName: string,
     filePath: string,
-    metaData: ObjectMetaData
+    metaData?: ObjectMetaData
   ): Promise<void>;
   statObject(
     objectName: string,
@@ -280,10 +302,15 @@ export interface ProxyClient extends Client {
   ): Promise<BucketItem[]>;
   putObjectAsync(
     objectName: string,
-    filePath: string,
+    stream: stream.Readable | Buffer | string,
     size?: number,
     metaData?: ItemBucketMetadata
-  ): Promise<{ etag: string; versionId: string }>;
+  ): Promise<UploadedObjectInfo>;
+  fPutObjectAsync(
+    objectName: string,
+    filePath: string,
+    metaData?: ItemBucketMetadata
+  ): Promise<UploadedObjectInfo>;
 }
 
 export const MinioClientProxy = new Proxy(ProxyClient, {

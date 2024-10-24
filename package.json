@@ -1,6 +1,6 @@
 {
   "name": "midway-minio",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "description": "minio plugin for midwayJs",
   "main": "dist/index.js",
   "typings": "index.d.ts",
